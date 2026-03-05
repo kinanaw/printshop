@@ -12,7 +12,7 @@ import os
 
 # ─── Page Config ────────────────────────────────────────────────────────────
 st.set_page_config(
-    page_title="Blueprint Roll Organizer",
+    page_title="GolanCopy Roll Organizer",
     page_icon="🗺️",
     layout="wide",
     initial_sidebar_state="collapsed",
@@ -242,8 +242,10 @@ div[data-testid="stFileUploader"] {
 # ─── Header ─────────────────────────────────────────────────────────────────
 st.markdown("""
 <div class="main-header">
-    <h1>🗺️ Blueprint Roll Organizer</h1>
-    <p>Automated PDF sorting, trimming & paper calculation for print rolls</p>
+    <h1>🗺️ GolanCopy Roll Organizer</h1>
+    <p>Automated PDF sorting, trimming & paper calculation</p>
+    <p> made by kinanaw from GolanCopy</p>
+    <p> GolanCopy@gmail.com </p>
 </div>
 """, unsafe_allow_html=True)
 
