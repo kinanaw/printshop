@@ -14,7 +14,7 @@ import os
 st.set_page_config(
 
     page_title="GolanCopy Roll Organizer",
-    page_icon="🗺️",
+    page_icon="🗺️🖨️",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -289,49 +289,37 @@ def pts_to_cm(pts):
 def cm_to_pts(cm):
     return cm * PTS_PER_CM
 
-def get_pdf_dimensions(pdf_bytes: bytes):
-    """Return (width_pts, height_pts) of the first page."""
-    reader = PdfReader(io.BytesIO(pdf_bytes))
-    page = reader.pages[0]
+def get_page_dimensions(page):
+    """Return (width_pts, height_pts) for a single PdfReader page."""
     box = page.mediabox
-    w = float(box.width)
-    h = float(box.height)
-    return w, h
+    return float(box.width), float(box.height)
 
-def trim_whitespace(pdf_bytes: bytes) -> bytes:
+def trim_whitespace_page(page_bytes: bytes) -> bytes:
     """
-    Attempt to trim white bleed area using PyMuPDF.
-    Renders the page, finds the bounding box of inked content,
-    then crops the PDF. Falls back to original if trimming fails or
-    content box is ambiguous (<5% savings).
+    Trim white bleed from a single-page PDF bytes.
+    Falls back to original if trimming fails or saves <5%.
     """
     try:
-        doc = fitz.open(stream=pdf_bytes, filetype="pdf")
+        doc = fitz.open(stream=page_bytes, filetype="pdf")
         page = doc[0]
-        # Render at low res for speed
         mat = fitz.Matrix(0.5, 0.5)
-        clip = page.get_bboxlog()
-
-        # Use get_drawings / get_text bbox approach
         pix = page.get_pixmap(matrix=mat, colorspace=fitz.csGRAY)
         img = Image.frombytes("L", [pix.width, pix.height], pix.samples)
 
-        # Find non-white pixels (threshold 245)
         import numpy as np
-        arr = 255 - (img if isinstance(img, Image.Image) else Image.fromarray(img))
-        arr_np = 255 - __import__('numpy').array(img)
-        rows = __import__('numpy').any(arr_np > 10, axis=1)
-        cols = __import__('numpy').any(arr_np > 10, axis=0)
+        arr_np = 255 - np.array(img)
+        rows = np.any(arr_np > 10, axis=1)
+        cols = np.any(arr_np > 10, axis=0)
         if not rows.any():
             doc.close()
-            return pdf_bytes  # blank page, skip
+            return page_bytes
 
-        rmin, rmax = __import__('numpy').where(rows)[0][[0, -1]]
-        cmin, cmax = __import__('numpy').where(cols)[0][[0, -1]]
+        rmin, rmax = np.where(rows)[0][[0, -1]]
+        cmin, cmax = np.where(cols)[0][[0, -1]]
 
-        scale = 2.0  # inverse of 0.5 render scale
+        scale = 2.0
         orig_rect = page.rect
-        margin = 5 * scale  # small margin in pts
+        margin = 5 * scale
 
         new_rect = fitz.Rect(
             max(0, cmin * scale - margin),
@@ -340,7 +328,6 @@ def trim_whitespace(pdf_bytes: bytes) -> bytes:
             min(orig_rect.height, rmax * scale + margin),
         )
 
-        # Only trim if it saves >5% area
         orig_area = orig_rect.width * orig_rect.height
         new_area = new_rect.width * new_rect.height
         if new_area < orig_area * 0.95:
@@ -351,53 +338,80 @@ def trim_whitespace(pdf_bytes: bytes) -> bytes:
             return out.getvalue()
         else:
             doc.close()
-            return pdf_bytes
+            return page_bytes
     except Exception:
-        return pdf_bytes
+        return page_bytes
+
+
+def extract_single_page(pdf_bytes: bytes, page_index: int) -> bytes:
+    """Extract a single page from a PDF as its own PDF bytes."""
+    reader = PdfReader(io.BytesIO(pdf_bytes))
+    writer = PdfWriter()
+    writer.add_page(reader.pages[page_index])
+    out = io.BytesIO()
+    writer.write(out)
+    return out.getvalue()
 
 
 def categorize_pdfs(files_data: list):
     """
     files_data: list of (filename, bytes)
-    Returns:
+    Processes ALL pages in every uploaded PDF.
+    Each page is treated independently and sorted into:
       roll60_items, roll91_items, a4_items, a3_items
-      Note: A4/A3 pages are ALSO included in the roll lists (not exclusive).
     """
     roll60 = []
     roll91 = []
     a4_items = []
     a3_items = []
 
-    for name, raw_bytes in files_data:
-        trimmed = trim_whitespace(raw_bytes)
-        w, h = get_pdf_dimensions(trimmed)
-        w_cm = pts_to_cm(w)
-        h_cm = pts_to_cm(h)
+    for filename, raw_bytes in files_data:
+        reader = PdfReader(io.BytesIO(raw_bytes))
+        num_pages = len(reader.pages)
 
-        # Detect A4 / A3 (using original untrimmed dimensions for standard size match)
-        orig_w, orig_h = get_pdf_dimensions(raw_bytes)
-        base_item = dict(name=name, bytes=trimmed, w_pts=w, h_pts=h,
-                         w_cm=w_cm, h_cm=h_cm, rotated=False)
-        if is_a4(orig_w, orig_h):
-            a4_items.append(base_item)
-            continue  # excluded from roll lists
-        elif is_a3(orig_w, orig_h):
-            a3_items.append(base_item)
-            continue  # excluded from roll lists
+        for page_index in range(num_pages):
+            # Label: filename for single-page, "filename (p2)" etc for multi-page
+            if num_pages == 1:
+                name = filename
+            else:
+                name = f"{filename} (p{page_index + 1})"
 
-        # Roll categorization (unchanged logic) — only non-A4/A3 files reach here
-        if w <= ROLL_60_PTS:
-            item = dict(name=name, bytes=trimmed, w_pts=w, h_pts=h,
-                        w_cm=w_cm, h_cm=h_cm, rotated=False)
-            roll60.append(item)
-        elif h <= ROLL_60_PTS:
-            item = dict(name=name, bytes=trimmed, w_pts=h, h_pts=w,
-                        w_cm=h_cm, h_cm=w_cm, rotated=True)
-            roll60.append(item)
-        else:
-            item = dict(name=name, bytes=trimmed, w_pts=w, h_pts=h,
-                        w_cm=w_cm, h_cm=h_cm, rotated=False)
-            roll91.append(item)
+            # Extract this page as its own PDF
+            page_bytes = extract_single_page(raw_bytes, page_index)
+
+            # Trim whitespace
+            trimmed = trim_whitespace_page(page_bytes)
+
+            # Get dimensions after trimming
+            w, h = get_page_dimensions(PdfReader(io.BytesIO(trimmed)).pages[0])
+            w_cm = pts_to_cm(w)
+            h_cm = pts_to_cm(h)
+
+            # Detect A4/A3 using original (untrimmed) page dimensions
+            orig_w, orig_h = get_page_dimensions(reader.pages[page_index])
+            base_item = dict(name=name, bytes=trimmed, w_pts=w, h_pts=h,
+                             w_cm=w_cm, h_cm=h_cm, rotated=False)
+
+            if is_a4(orig_w, orig_h):
+                a4_items.append(base_item)
+                continue  # excluded from roll lists
+            elif is_a3(orig_w, orig_h):
+                a3_items.append(base_item)
+                continue  # excluded from roll lists
+
+            # Roll categorization — only non-A4/A3 pages reach here
+            if w <= ROLL_60_PTS:
+                item = dict(name=name, bytes=trimmed, w_pts=w, h_pts=h,
+                            w_cm=w_cm, h_cm=h_cm, rotated=False)
+                roll60.append(item)
+            elif h <= ROLL_60_PTS:
+                item = dict(name=name, bytes=trimmed, w_pts=h, h_pts=w,
+                            w_cm=h_cm, h_cm=w_cm, rotated=True)
+                roll60.append(item)
+            else:
+                item = dict(name=name, bytes=trimmed, w_pts=w, h_pts=h,
+                            w_cm=w_cm, h_cm=h_cm, rotated=False)
+                roll91.append(item)
 
     return roll60, roll91, a4_items, a3_items
 
