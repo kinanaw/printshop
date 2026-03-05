@@ -12,6 +12,9 @@ import os
 
 # ─── Page Config ────────────────────────────────────────────────────────────
 st.set_page_config(
+    col1, col2, col3 = st.columns([1, 2, 1])
+with col2:
+    st.image("logo.png", width=200)
     page_title="GolanCopy Roll Organizer",
     page_icon="🗺️",
     layout="wide",
