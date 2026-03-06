@@ -586,7 +586,7 @@ if uploaded_files:
     # ── Rounded paper totals ───────────────────────────────────────────────
     if roll60_items or roll91_items:
         st.markdown("---")
-        st.markdown('<div class="section-label">📐 Rounded Paper Estimate (per page → nearest 0.5 m)</div>',
+        st.markdown('<div class="section-label">📐 Paper Estimate </div>',
                     unsafe_allow_html=True)
 
         rc1, rc2 = st.columns(2)
