@@ -575,12 +575,12 @@ if uploaded_files:
     with m1:
         st.metric("Files on 60 cm roll", len(roll60_items))
     with m2:
-        st.metric("Paper needed (60 cm)", f"{paper_60:.2f} m",
+        st.metric("Paper needed (60 cm)", f" {paper_60_rounded_m:.1f} m",
                   help="Raw total length (no rounding)")
     with m3:
         st.metric("Files on 91 cm roll", len(roll91_items))
     with m4:
-        st.metric("Paper needed (91 cm)", f"{paper_91:.2f} m",
+        st.metric("Paper needed (91 cm)", f"{paper_91_rounded_m:.1f} m",
                   help="Raw total length (no rounding)")
 
     # ── Rounded paper totals ───────────────────────────────────────────────
