@@ -521,8 +521,6 @@ with col_info:
             if rotation helps fit.<br>
             White bleed is trimmed<br>
             before sorting.<br>
-            Paper rounded up to<br>
-            nearest 0.5 m per page.
         </div>
     </div>
     """, unsafe_allow_html=True)
