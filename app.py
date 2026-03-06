@@ -442,6 +442,42 @@ def calculate_paper(items: list) -> float:
     return total_cm / 100.0  # convert cm → meters
 
 
+def round_up_to_half_meter(cm: float) -> float:
+    """
+    Round a dimension in cm UP to the nearest 0.5 m (50 cm).
+    E.g. 90 cm → 1.0 m, 190 cm → 2.0 m, 51 cm → 1.0 m, 100 cm → 1.0 m
+    """
+    meters = cm / 100.0
+    return math.ceil(meters * 2) / 2.0  # round up to nearest 0.5
+
+
+def calculate_paper_rounded(items: list) -> tuple:
+    """
+    For each page: take max(w_cm, h_cm) — the longer dimension —
+    round it up to the nearest 0.5 m, then sum all rounded values.
+
+    Returns:
+        total_rounded_m  (float) — total rounded paper in meters
+        per_page         (list of dicts) — breakdown per page
+    """
+    per_page = []
+    total_rounded_m = 0.0
+
+    for item in items:
+        long_side_cm = max(item['w_cm'], item['h_cm'])
+        rounded_m = round_up_to_half_meter(long_side_cm)
+        total_rounded_m += rounded_m
+        per_page.append({
+            'name': item['name'],
+            'w_cm': item['w_cm'],
+            'h_cm': item['h_cm'],
+            'long_side_cm': long_side_cm,
+            'rounded_m': rounded_m,
+        })
+
+    return total_rounded_m, per_page
+
+
 # ─── Main App ────────────────────────────────────────────────────────────────
 
 col_upload, col_info = st.columns([2, 1])
@@ -480,7 +516,9 @@ with col_info:
             PDFs are auto-rotated<br>
             if rotation helps fit.<br>
             White bleed is trimmed<br>
-            before sorting.
+            before sorting.<br>
+            Paper rounded up to<br>
+            nearest 0.5 m per page.
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -527,32 +565,87 @@ if uploaded_files:
     paper_60 = calculate_paper(roll60_items)
     paper_91 = calculate_paper(roll91_items)
 
+    # Rounded paper calculations per roll
+    paper_60_rounded_m, breakdown_60_rounded = calculate_paper_rounded(roll60_items)
+    paper_91_rounded_m, breakdown_91_rounded = calculate_paper_rounded(roll91_items)
+
     m1, m2, m3, m4 = st.columns(4)
     with m1:
         st.metric("Files on 60 cm roll", len(roll60_items))
     with m2:
-        st.metric("Paper needed (60 cm)", f"{paper_60:.2f} m")
+        st.metric("Paper needed (60 cm)", f"{paper_60:.2f} m",
+                  help="Raw total length (no rounding)")
     with m3:
         st.metric("Files on 91 cm roll", len(roll91_items))
     with m4:
-        st.metric("Paper needed (91 cm)", f"{paper_91:.2f} m")
+        st.metric("Paper needed (91 cm)", f"{paper_91:.2f} m",
+                  help="Raw total length (no rounding)")
+
+    # ── Rounded paper totals ───────────────────────────────────────────────
+    if roll60_items or roll91_items:
+        st.markdown("---")
+        st.markdown('<div class="section-label">📐 Rounded Paper Estimate (per page → nearest 0.5 m)</div>',
+                    unsafe_allow_html=True)
+
+        rc1, rc2 = st.columns(2)
+
+        with rc1:
+            if roll60_items:
+                st.markdown(f"""
+                <div class="card">
+                    <span class="roll-60">60 CM ROLL</span>
+                    <div style="margin-top:.6rem; font-family:'Space Mono',monospace; font-size:1.6rem; font-weight:700; color:#1a3a5c;">
+                        {paper_60_rounded_m:.1f} m
+                    </div>
+                    <div style="font-size:.8rem; opacity:.6;">total rounded estimate</div>
+                </div>
+                """, unsafe_allow_html=True)
+
+        with rc2:
+            if roll91_items:
+                st.markdown(f"""
+                <div class="card">
+                    <span class="roll-91">91 CM ROLL</span>
+                    <div style="margin-top:.6rem; font-family:'Space Mono',monospace; font-size:1.6rem; font-weight:700; color:#1a3a5c;">
+                        {paper_91_rounded_m:.1f} m
+                    </div>
+                    <div style="font-size:.8rem; opacity:.6;">total rounded estimate</div>
+                </div>
+                """, unsafe_allow_html=True)
 
     # ── Paper detail breakdown ─────────────────────────────────────────────
     with st.expander("📏 Paper calculation breakdown"):
         if roll60_items:
-            st.markdown("**60 cm roll**")
+            st.markdown("**60 cm roll — raw lengths**")
             breakdown60 = [f"{i['name']} → {i['h_cm']:.1f} cm" for i in roll60_items]
             st.write(" + ".join([f"{i['h_cm']:.1f}" for i in roll60_items]) +
                      f" = **{sum(i['h_cm'] for i in roll60_items):.1f} cm = {paper_60:.2f} m**")
             for b in breakdown60:
                 st.write(f"  • {b}")
+
+            st.markdown("**60 cm roll — rounded per page (max side → nearest 0.5 m)**")
+            for p in breakdown_60_rounded:
+                st.write(
+                    f"  • {p['name']} → max({p['w_cm']:.1f}, {p['h_cm']:.1f}) = "
+                    f"{p['long_side_cm']:.1f} cm → **{p['rounded_m']:.1f} m**"
+                )
+            st.write(f"  **Total: {paper_60_rounded_m:.1f} m**")
+
         if roll91_items:
-            st.markdown("**91 cm roll**")
+            st.markdown("**91 cm roll — raw lengths**")
             breakdown91 = [f"{i['name']} → {i['h_cm']:.1f} cm" for i in roll91_items]
             st.write(" + ".join([f"{i['h_cm']:.1f}" for i in roll91_items]) +
                      f" = **{sum(i['h_cm'] for i in roll91_items):.1f} cm = {paper_91:.2f} m**")
             for b in breakdown91:
                 st.write(f"  • {b}")
+
+            st.markdown("**91 cm roll — rounded per page (max side → nearest 0.5 m)**")
+            for p in breakdown_91_rounded:
+                st.write(
+                    f"  • {p['name']} → max({p['w_cm']:.1f}, {p['h_cm']:.1f}) = "
+                    f"{p['long_side_cm']:.1f} cm → **{p['rounded_m']:.1f} m**"
+                )
+            st.write(f"  **Total: {paper_91_rounded_m:.1f} m**")
 
     # ── Generate & Download ────────────────────────────────────────────────
     st.markdown("---")
@@ -568,7 +661,10 @@ if uploaded_files:
             <div class="card">
                 <span class="roll-60">60 CM ROLL</span>
                 <div style="margin-top:.7rem; font-size:.9rem;">
-                    <strong>{len(roll60_items)} files</strong> · {paper_60:.2f} m paper
+                    <strong>{len(roll60_items)} files</strong> · {paper_60:.2f} m paper<br>
+                    <span style="color:#2a9d8f; font-family:'Space Mono',monospace; font-weight:700;">
+                        📐 {paper_60_rounded_m:.1f} m rounded
+                    </span>
                 </div>
             """, unsafe_allow_html=True)
             st.download_button(
@@ -590,7 +686,10 @@ if uploaded_files:
             <div class="card">
                 <span class="roll-91">91 CM ROLL</span>
                 <div style="margin-top:.7rem; font-size:.9rem;">
-                    <strong>{len(roll91_items)} files</strong> · {paper_91:.2f} m paper
+                    <strong>{len(roll91_items)} files</strong> · {paper_91:.2f} m paper<br>
+                    <span style="color:#f4a261; font-family:'Space Mono',monospace; font-weight:700;">
+                        📐 {paper_91_rounded_m:.1f} m rounded
+                    </span>
                 </div>
             """, unsafe_allow_html=True)
             st.download_button(
