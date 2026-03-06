@@ -666,6 +666,6 @@ else:
 st.markdown("""
 <div style="text-align:center; margin-top:3rem; font-family:'Space Mono',monospace;
      font-size:.7rem; opacity:.35; letter-spacing:.1em">
-    BLUEPRINT ROLL ORGANIZER · PRINT SHOP AUTOMATION
+    העתקות הגולן - מג'דל שמס - קצרין 
 </div>
 """, unsafe_allow_html=True)
