@@ -665,7 +665,7 @@ else:
 # Footer
 st.markdown("""
 <div style="text-align:center; margin-top:3rem; font-family:'Space Mono',monospace;
-     font-size:.15rem; opacity:.70; letter-spacing:.1em">
+     font-size:.15; opacity:.70; letter-spacing:.1em">
     העתקות הגולן - מג'דל שמס - קצרין 
 </div>
 """, unsafe_allow_html=True)
