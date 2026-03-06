@@ -444,38 +444,42 @@ def calculate_paper(items: list) -> float:
 
 def round_up_to_half_meter(cm: float) -> float:
     """
-    Round a dimension in cm UP to the nearest 0.5 m (50 cm).
-    E.g. 90 cm → 1.0 m, 190 cm → 2.0 m, 51 cm → 1.0 m, 100 cm → 1.0 m
+    Round a dimension in cm UP to the nearest 50 cm (0.5 m).
+    E.g. 159 cm → 200 cm (2.0 m), 370 cm → 400 cm (4.0 m),
+         90 cm → 100 cm (1.0 m), 200 cm → 200 cm (2.0 m)
     """
-    meters = cm / 100.0
-    return math.ceil(meters * 2) / 2.0  # round up to nearest 0.5
+    return math.ceil(cm / 50.0) * 50.0  # result in cm
 
 
 def calculate_paper_rounded(items: list) -> tuple:
     """
-    For each page: take max(w_cm, h_cm) — the longer dimension —
-    round it up to the nearest 0.5 m, then sum all rounded values.
+    For each page:
+      1. Take max(w_cm, h_cm) — the longer dimension
+      2. Round it UP to the nearest 50 cm
+      3. Sum all rounded values
 
     Returns:
-        total_rounded_m  (float) — total rounded paper in meters
+        total_rounded_cm (float) — total in cm
+        total_rounded_m  (float) — total in meters
         per_page         (list of dicts) — breakdown per page
     """
     per_page = []
-    total_rounded_m = 0.0
+    total_rounded_cm = 0.0
 
     for item in items:
         long_side_cm = max(item['w_cm'], item['h_cm'])
-        rounded_m = round_up_to_half_meter(long_side_cm)
-        total_rounded_m += rounded_m
+        rounded_cm = round_up_to_half_meter(long_side_cm)
+        total_rounded_cm += rounded_cm
         per_page.append({
             'name': item['name'],
             'w_cm': item['w_cm'],
             'h_cm': item['h_cm'],
             'long_side_cm': long_side_cm,
-            'rounded_m': rounded_m,
+            'rounded_cm': rounded_cm,
+            'rounded_m': rounded_cm / 100.0,
         })
 
-    return total_rounded_m, per_page
+    return total_rounded_cm, total_rounded_cm / 100.0, per_page
 
 
 # ─── Main App ────────────────────────────────────────────────────────────────
@@ -566,8 +570,8 @@ if uploaded_files:
     paper_91 = calculate_paper(roll91_items)
 
     # Rounded paper calculations per roll
-    paper_60_rounded_m, breakdown_60_rounded = calculate_paper_rounded(roll60_items)
-    paper_91_rounded_m, breakdown_91_rounded = calculate_paper_rounded(roll91_items)
+    paper_60_rounded_cm, paper_60_rounded_m, breakdown_60_rounded = calculate_paper_rounded(roll60_items)
+    paper_91_rounded_cm, paper_91_rounded_m, breakdown_91_rounded = calculate_paper_rounded(roll91_items)
 
     m1, m2, m3, m4 = st.columns(4)
     with m1:
@@ -623,13 +627,13 @@ if uploaded_files:
             for b in breakdown60:
                 st.write(f"  • {b}")
 
-            st.markdown("**60 cm roll — rounded per page (max side → nearest 0.5 m)**")
+            st.markdown("**60 cm roll — rounded per page (max side → nearest 50 cm)**")
             for p in breakdown_60_rounded:
                 st.write(
                     f"  • {p['name']} → max({p['w_cm']:.1f}, {p['h_cm']:.1f}) = "
-                    f"{p['long_side_cm']:.1f} cm → **{p['rounded_m']:.1f} m**"
+                    f"{p['long_side_cm']:.1f} cm → **{p['rounded_cm']:.0f} cm ({p['rounded_m']:.1f} m)**"
                 )
-            st.write(f"  **Total: {paper_60_rounded_m:.1f} m**")
+            st.write(f"  **Total: {paper_60_rounded_cm:.0f} cm = {paper_60_rounded_m:.1f} m**")
 
         if roll91_items:
             st.markdown("**91 cm roll — raw lengths**")
@@ -639,13 +643,13 @@ if uploaded_files:
             for b in breakdown91:
                 st.write(f"  • {b}")
 
-            st.markdown("**91 cm roll — rounded per page (max side → nearest 0.5 m)**")
+            st.markdown("**91 cm roll — rounded per page (max side → nearest 50 cm)**")
             for p in breakdown_91_rounded:
                 st.write(
                     f"  • {p['name']} → max({p['w_cm']:.1f}, {p['h_cm']:.1f}) = "
-                    f"{p['long_side_cm']:.1f} cm → **{p['rounded_m']:.1f} m**"
+                    f"{p['long_side_cm']:.1f} cm → **{p['rounded_cm']:.0f} cm ({p['rounded_m']:.1f} m)**"
                 )
-            st.write(f"  **Total: {paper_91_rounded_m:.1f} m**")
+            st.write(f"  **Total: {paper_91_rounded_cm:.0f} cm = {paper_91_rounded_m:.1f} m**")
 
     # ── Generate & Download ────────────────────────────────────────────────
     st.markdown("---")
