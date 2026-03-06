@@ -18,7 +18,7 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="collapsed",
 )
-col1, col2, col3 = st.columns([0.5, 4, 0.5])
+col1, col2, col3 = st.columns([0.5, 2, 0.5])
 with col2:
     st.image("logo.png", use_container_width=True)
 # ─── Custom CSS ─────────────────────────────────────────────────────────────
