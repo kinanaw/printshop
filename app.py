@@ -259,26 +259,13 @@ ROLL_91_CM = 91.0
 ROLL_60_PTS = ROLL_60_CM * PTS_PER_CM
 ROLL_91_PTS = ROLL_91_CM * PTS_PER_CM
 
-# Standard paper sizes in pts (tolerance ±5pts ~1.8mm)
-A4_W_PTS = 595.28   # 21.0 cm
-A4_H_PTS = 841.89   # 29.7 cm
-A3_W_PTS = 841.89   # 29.7 cm
-A3_H_PTS = 1190.55  # 42.0 cm
-SIZE_TOLERANCE = 10.0  # pts
-
-
-def is_a4(w, h):
-    """True if page dimensions match A4 in either orientation."""
-    portrait  = abs(w - A4_W_PTS) < SIZE_TOLERANCE and abs(h - A4_H_PTS) < SIZE_TOLERANCE
-    landscape = abs(w - A4_H_PTS) < SIZE_TOLERANCE and abs(h - A4_W_PTS) < SIZE_TOLERANCE
-    return portrait or landscape
-
-
-def is_a3(w, h):
-    """True if page dimensions match A3 in either orientation."""
-    portrait  = abs(w - A3_W_PTS) < SIZE_TOLERANCE and abs(h - A3_H_PTS) < SIZE_TOLERANCE
-    landscape = abs(w - A3_H_PTS) < SIZE_TOLERANCE and abs(h - A3_W_PTS) < SIZE_TOLERANCE
-    return portrait or landscape
+# Threshold boundaries in pts
+# A4 max dimension: 29.7 cm = 841.89 pts
+# A3 max dimension: 42.0 cm = 1190.55 pts
+A4_MAX_PTS = 841.89   # anything with max_dim <= this → A4 bucket
+A3_MAX_PTS = 1190.55  # anything with max_dim <= this → A3 bucket
+# anything with max_dim <= ROLL_60_PTS → 60cm roll
+# anything above → 91cm roll
 
 
 # ─── Helper Functions ────────────────────────────────────────────────────────
@@ -357,8 +344,15 @@ def categorize_pdfs(files_data: list):
     """
     files_data: list of (filename, bytes)
     Processes ALL pages in every uploaded PDF.
-    Each page is treated independently and sorted into:
-      roll60_items, roll91_items, a4_items, a3_items
+
+    Each page is categorized by its max dimension (after trimming):
+      - max_dim <= A4_MAX_PTS (29.7 cm)      → a4_items
+      - A4_MAX_PTS < max_dim <= A3_MAX_PTS (42.0 cm) → a3_items
+      - A3_MAX_PTS < max_dim <= ROLL_60_PTS (60.0 cm) → roll60_items
+      - max_dim > ROLL_60_PTS               → roll91_items
+
+    For roll items: if the page needs rotation to fit portrait on roll
+    (i.e. width > height), it is marked rotated=True.
     """
     roll60 = []
     roll91 = []
@@ -387,28 +381,37 @@ def categorize_pdfs(files_data: list):
             w_cm = pts_to_cm(w)
             h_cm = pts_to_cm(h)
 
-            # Detect A4/A3 using original (untrimmed) page dimensions
-            orig_w, orig_h = get_page_dimensions(reader.pages[page_index])
-            base_item = dict(name=name, bytes=trimmed, w_pts=w, h_pts=h,
-                             w_cm=w_cm, h_cm=h_cm, rotated=False)
+            # Max dimension drives categorization
+            max_dim = max(w, h)
+            min_dim = min(w, h)
 
-            if is_a4(orig_w, orig_h):
-                a4_items.append(base_item)
-                continue  # excluded from roll lists
-            elif is_a3(orig_w, orig_h):
-                a3_items.append(base_item)
-                continue  # excluded from roll lists
-
-            # Roll categorization — only non-A4/A3 pages reach here
-            if w <= ROLL_60_PTS:
+            if max_dim <= A4_MAX_PTS:
+                # Fits within A4 bounds → A4 bucket (no roll)
                 item = dict(name=name, bytes=trimmed, w_pts=w, h_pts=h,
                             w_cm=w_cm, h_cm=h_cm, rotated=False)
+                a4_items.append(item)
+
+            elif max_dim <= A3_MAX_PTS:
+                # Bigger than A4 but fits within A3 bounds → A3 bucket
+                item = dict(name=name, bytes=trimmed, w_pts=w, h_pts=h,
+                            w_cm=w_cm, h_cm=h_cm, rotated=False)
+                a3_items.append(item)
+
+            elif max_dim <= ROLL_60_PTS:
+                # Bigger than A3 but fits 60 cm roll
+                # Orient so the shorter side is the roll width (portrait on roll)
+                if w <= ROLL_60_PTS:
+                    # width fits → no rotation needed
+                    item = dict(name=name, bytes=trimmed, w_pts=w, h_pts=h,
+                                w_cm=w_cm, h_cm=h_cm, rotated=False)
+                else:
+                    # rotate so the shorter side becomes width
+                    item = dict(name=name, bytes=trimmed, w_pts=h, h_pts=w,
+                                w_cm=h_cm, h_cm=w_cm, rotated=True)
                 roll60.append(item)
-            elif h <= ROLL_60_PTS:
-                item = dict(name=name, bytes=trimmed, w_pts=h, h_pts=w,
-                            w_cm=h_cm, h_cm=w_cm, rotated=True)
-                roll60.append(item)
+
             else:
+                # Needs 91 cm roll
                 item = dict(name=name, bytes=trimmed, w_pts=w, h_pts=h,
                             w_cm=w_cm, h_cm=h_cm, rotated=False)
                 roll91.append(item)
@@ -501,26 +504,26 @@ with col_info:
     <div class="card" style="margin-top:0">
         <div class="section-label">Output Groups</div>
         <div style="margin-top:.6rem">
-            <span class="roll-60">● 60 cm</span>
-            <span style="font-size:.85rem; margin-left:.5rem;">Narrow roll</span>
-        </div>
-        <div style="margin-top:.5rem">
-            <span class="roll-91">● 91 cm</span>
-            <span style="font-size:.85rem; margin-left:.5rem;">Wide roll</span>
-        </div>
-        <div style="margin-top:.5rem">
             <span class="tag-a4">● A4</span>
-            <span style="font-size:.85rem; margin-left:.5rem;">A4 pages</span>
+            <span style="font-size:.85rem; margin-left:.5rem;">max dim ≤ 29.7 cm</span>
         </div>
         <div style="margin-top:.5rem">
             <span class="tag-a3">● A3</span>
-            <span style="font-size:.85rem; margin-left:.5rem;">A3 pages</span>
+            <span style="font-size:.85rem; margin-left:.5rem;">29.7 – 42.0 cm</span>
+        </div>
+        <div style="margin-top:.5rem">
+            <span class="roll-60">● 60 cm</span>
+            <span style="font-size:.85rem; margin-left:.5rem;">42.0 – 60.0 cm</span>
+        </div>
+        <div style="margin-top:.5rem">
+            <span class="roll-91">● 91 cm</span>
+            <span style="font-size:.85rem; margin-left:.5rem;">above 60.0 cm</span>
         </div>
         <div style="margin-top:1rem; font-size:.8rem; opacity:.6; font-family:'Space Mono',monospace; line-height:1.6">
-            PDFs are auto-rotated<br>
-            if rotation helps fit.<br>
-            White bleed is trimmed<br>
-            before sorting.<br>
+            Sorted by max dimension<br>
+            after whitespace trim.<br>
+            Roll pages auto-rotated<br>
+            to fit portrait on roll.<br>
         </div>
     </div>
     """, unsafe_allow_html=True)
@@ -539,25 +542,21 @@ if uploaded_files:
     st.markdown('<div class="section-label">File Analysis</div>', unsafe_allow_html=True)
 
     all_items = (
-        [dict(**i, roll="60 cm") for i in roll60_items] +
-        [dict(**i, roll="91 cm") for i in roll91_items] +
         [dict(**i, roll="A4") for i in a4_items] +
-        [dict(**i, roll="A3") for i in a3_items]
+        [dict(**i, roll="A3") for i in a3_items] +
+        [dict(**i, roll="60 cm") for i in roll60_items] +
+        [dict(**i, roll="91 cm") for i in roll91_items]
     )
-
-    a4_names = {i['name'] for i in a4_items}
-    a3_names = {i['name'] for i in a3_items}
 
     table_rows = []
     for item in all_items:
-        size_tag = "A4" if item['name'] in a4_names else ("A3" if item['name'] in a3_names else "–")
         table_rows.append({
             "File": item['name'],
             "Width (cm)": f"{item['w_cm']:.1f}",
             "Length (cm)": f"{item['h_cm']:.1f}",
-            "Size": size_tag,
+            "Max Dim (cm)": f"{max(item['w_cm'], item['h_cm']):.1f}",
             "Rotated": "✓" if item['rotated'] else "–",
-            "Roll": item['roll'],
+            "Output": item['roll'],
         })
 
     df = pd.DataFrame(table_rows)
@@ -573,15 +572,15 @@ if uploaded_files:
 
     m1, m2, m3, m4 = st.columns(4)
     with m1:
-        st.metric("Files on 60 cm roll", len(roll60_items))
+        st.metric("A4 pages", len(a4_items))
     with m2:
-        st.metric("Paper needed (60 cm)", f" {paper_60_rounded_m:.1f} m",
-                  help="Raw total length (no rounding)")
+        st.metric("A3 pages", len(a3_items))
     with m3:
-        st.metric("Files on 91 cm roll", len(roll91_items))
+        st.metric("Files on 60 cm roll", len(roll60_items),
+                  help=f"Paper: {paper_60_rounded_m:.1f} m")
     with m4:
-        st.metric("Paper needed (91 cm)", f"{paper_91_rounded_m:.1f} m",
-                  help="Raw total length (no rounding)")
+        st.metric("Files on 91 cm roll", len(roll91_items),
+                  help=f"Paper: {paper_91_rounded_m:.1f} m")
 
     # ── Rounded paper totals ───────────────────────────────────────────────
     if roll60_items or roll91_items:
@@ -656,6 +655,50 @@ if uploaded_files:
     dl1, dl2, dl3, dl4 = st.columns(4)
 
     with dl1:
+        if a4_items:
+            with st.spinner("Merging A4 PDFs…"):
+                merged_a4 = merge_pdfs(a4_items, 21.0)
+            st.markdown(f"""
+            <div class="card">
+                <span class="tag-a4">A4 PAGES</span>
+                <div style="margin-top:.7rem; font-size:.9rem;">
+                    <strong>{len(a4_items)} files</strong> · max dim ≤ 29.7 cm
+                </div>
+            """, unsafe_allow_html=True)
+            st.download_button(
+                label="⬇ Download a4_pages.pdf",
+                data=merged_a4,
+                file_name="a4_pages.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
+        else:
+            st.info("No A4-sized PDFs detected.")
+
+    with dl2:
+        if a3_items:
+            with st.spinner("Merging A3 PDFs…"):
+                merged_a3 = merge_pdfs(a3_items, 29.7)
+            st.markdown(f"""
+            <div class="card">
+                <span class="tag-a3">A3 PAGES</span>
+                <div style="margin-top:.7rem; font-size:.9rem;">
+                    <strong>{len(a3_items)} files</strong> · 29.7 – 42.0 cm
+                </div>
+            """, unsafe_allow_html=True)
+            st.download_button(
+                label="⬇ Download a3_pages.pdf",
+                data=merged_a3,
+                file_name="a3_pages.pdf",
+                mime="application/pdf",
+                use_container_width=True,
+            )
+            st.markdown("</div>", unsafe_allow_html=True)
+        else:
+            st.info("No A3-sized PDFs detected.")
+
+    with dl3:
         if roll60_items:
             with st.spinner("Merging 60 cm PDFs…"):
                 merged60 = merge_pdfs(roll60_items, ROLL_60_CM)
@@ -680,7 +723,7 @@ if uploaded_files:
         else:
             st.info("No PDFs fit the 60 cm roll.")
 
-    with dl2:
+    with dl4:
         if roll91_items:
             with st.spinner("Merging 91 cm PDFs…"):
                 merged91 = merge_pdfs(roll91_items, ROLL_91_CM)
@@ -705,50 +748,6 @@ if uploaded_files:
         else:
             st.info("No PDFs require the 91 cm roll.")
 
-    with dl3:
-        if a4_items:
-            with st.spinner("Merging A4 PDFs…"):
-                merged_a4 = merge_pdfs(a4_items, 21.0)
-            st.markdown(f"""
-            <div class="card">
-                <span class="tag-a4">A4 PAGES</span>
-                <div style="margin-top:.7rem; font-size:.9rem;">
-                    <strong>{len(a4_items)} files</strong> · 21 × 29.7 cm
-                </div>
-            """, unsafe_allow_html=True)
-            st.download_button(
-                label="⬇ Download a4_pages.pdf",
-                data=merged_a4,
-                file_name="a4_pages.pdf",
-                mime="application/pdf",
-                use_container_width=True,
-            )
-            st.markdown("</div>", unsafe_allow_html=True)
-        else:
-            st.info("No A4-sized PDFs detected.")
-
-    with dl4:
-        if a3_items:
-            with st.spinner("Merging A3 PDFs…"):
-                merged_a3 = merge_pdfs(a3_items, 29.7)
-            st.markdown(f"""
-            <div class="card">
-                <span class="tag-a3">A3 PAGES</span>
-                <div style="margin-top:.7rem; font-size:.9rem;">
-                    <strong>{len(a3_items)} files</strong> · 29.7 × 42 cm
-                </div>
-            """, unsafe_allow_html=True)
-            st.download_button(
-                label="⬇ Download a3_pages.pdf",
-                data=merged_a3,
-                file_name="a3_pages.pdf",
-                mime="application/pdf",
-                use_container_width=True,
-            )
-            st.markdown("</div>", unsafe_allow_html=True)
-        else:
-            st.info("No A3-sized PDFs detected.")
-
 else:
     st.markdown("""
     <div class="card" style="text-align:center; padding: 3rem 2rem; opacity:.7">
@@ -757,7 +756,7 @@ else:
             Upload PDFs above to begin sorting
         </div>
         <div style="font-size:.8rem; margin-top:.4rem; opacity:.6">
-            Blueprints will be analysed, trimmed, sorted by roll width,<br>
+            Blueprints will be analysed, trimmed, sorted by max dimension,<br>
             and combined into downloadable files.
         </div>
     </div>
