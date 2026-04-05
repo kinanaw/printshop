@@ -259,13 +259,26 @@ ROLL_91_CM = 91.0
 ROLL_60_PTS = ROLL_60_CM * PTS_PER_CM
 ROLL_91_PTS = ROLL_91_CM * PTS_PER_CM
 
-# Threshold boundaries in pts
-# A4 max dimension: 29.7 cm = 841.89 pts
-# A3 max dimension: 42.0 cm = 1190.55 pts
-A4_MAX_PTS = 841.89   # anything with max_dim <= this → A4 bucket
-A3_MAX_PTS = 1190.55  # anything with max_dim <= this → A3 bucket
-# anything with max_dim <= ROLL_60_PTS → 60cm roll
-# anything above → 91cm roll
+# Standard paper sizes in pts (tolerance ±10pts ~3.5mm to handle minor trimming drift)
+A4_W_PTS = 595.28   # 21.0 cm
+A4_H_PTS = 841.89   # 29.7 cm
+A3_W_PTS = 841.89   # 29.7 cm
+A3_H_PTS = 1190.55  # 42.0 cm
+SIZE_TOLERANCE = 10.0  # pts
+
+
+def is_a4(w, h):
+    """True if page dimensions match A4 in either orientation."""
+    portrait  = abs(w - A4_W_PTS) < SIZE_TOLERANCE and abs(h - A4_H_PTS) < SIZE_TOLERANCE
+    landscape = abs(w - A4_H_PTS) < SIZE_TOLERANCE and abs(h - A4_W_PTS) < SIZE_TOLERANCE
+    return portrait or landscape
+
+
+def is_a3(w, h):
+    """True if page dimensions match A3 in either orientation."""
+    portrait  = abs(w - A3_W_PTS) < SIZE_TOLERANCE and abs(h - A3_H_PTS) < SIZE_TOLERANCE
+    landscape = abs(w - A3_H_PTS) < SIZE_TOLERANCE and abs(h - A3_W_PTS) < SIZE_TOLERANCE
+    return portrait or landscape
 
 
 # ─── Helper Functions ────────────────────────────────────────────────────────
@@ -342,17 +355,17 @@ def extract_single_page(pdf_bytes: bytes, page_index: int) -> bytes:
 
 def categorize_pdfs(files_data: list):
     """
-    files_data: list of (filename, bytes)
-    Processes ALL pages in every uploaded PDF.
+    Classification uses ORIGINAL (pre-trim) dimensions to avoid
+    trimming-induced mis-classification of A4/A3 pages.
 
-    Each page is categorized by its max dimension (after trimming):
-      - max_dim <= A4_MAX_PTS (29.7 cm)      → a4_items
-      - A4_MAX_PTS < max_dim <= A3_MAX_PTS (42.0 cm) → a3_items
-      - A3_MAX_PTS < max_dim <= ROLL_60_PTS (60.0 cm) → roll60_items
-      - max_dim > ROLL_60_PTS               → roll91_items
+    Rules (checked against original dims):
+      1. is_a4(orig_w, orig_h)                    → a4_items
+      2. is_a3(orig_w, orig_h)                    → a3_items
+      3. max(orig_w, orig_h) <= ROLL_60_PTS       → roll60_items
+      4. otherwise                                → roll91_items
 
-    For roll items: if the page needs rotation to fit portrait on roll
-    (i.e. width > height), it is marked rotated=True.
+    Trimmed bytes + trimmed dimensions are stored for output and
+    roll paper calculation only.
     """
     roll60 = []
     roll91 = []
@@ -364,54 +377,43 @@ def categorize_pdfs(files_data: list):
         num_pages = len(reader.pages)
 
         for page_index in range(num_pages):
-            # Label: filename for single-page, "filename (p2)" etc for multi-page
             if num_pages == 1:
                 name = filename
             else:
                 name = f"{filename} (p{page_index + 1})"
 
-            # Extract this page as its own PDF
+            # Original dimensions — used for classification
+            orig_w, orig_h = get_page_dimensions(reader.pages[page_index])
+
+            # Trimmed bytes + dimensions — used for output
             page_bytes = extract_single_page(raw_bytes, page_index)
-
-            # Trim whitespace
             trimmed = trim_whitespace_page(page_bytes)
-
-            # Get dimensions after trimming
             w, h = get_page_dimensions(PdfReader(io.BytesIO(trimmed)).pages[0])
             w_cm = pts_to_cm(w)
             h_cm = pts_to_cm(h)
 
-            # Max dimension drives categorization
-            max_dim = max(w, h)
-            min_dim = min(w, h)
-
-            if max_dim <= A4_MAX_PTS:
-                # Fits within A4 bounds → A4 bucket (no roll)
+            # ── Classify by ORIGINAL dims ──────────────────────────────────
+            if is_a4(orig_w, orig_h):
                 item = dict(name=name, bytes=trimmed, w_pts=w, h_pts=h,
                             w_cm=w_cm, h_cm=h_cm, rotated=False)
                 a4_items.append(item)
 
-            elif max_dim <= A3_MAX_PTS:
-                # Bigger than A4 but fits within A3 bounds → A3 bucket
+            elif is_a3(orig_w, orig_h):
                 item = dict(name=name, bytes=trimmed, w_pts=w, h_pts=h,
                             w_cm=w_cm, h_cm=h_cm, rotated=False)
                 a3_items.append(item)
 
-            elif max_dim <= ROLL_60_PTS:
-                # Bigger than A3 but fits 60 cm roll
-                # Orient so the shorter side is the roll width (portrait on roll)
-                if w <= ROLL_60_PTS:
-                    # width fits → no rotation needed
+            elif max(orig_w, orig_h) <= ROLL_60_PTS:
+                # Fits 60 cm roll — orient portrait on roll
+                if orig_w <= ROLL_60_PTS:
                     item = dict(name=name, bytes=trimmed, w_pts=w, h_pts=h,
                                 w_cm=w_cm, h_cm=h_cm, rotated=False)
                 else:
-                    # rotate so the shorter side becomes width
                     item = dict(name=name, bytes=trimmed, w_pts=h, h_pts=w,
                                 w_cm=h_cm, h_cm=w_cm, rotated=True)
                 roll60.append(item)
 
             else:
-                # Needs 91 cm roll
                 item = dict(name=name, bytes=trimmed, w_pts=w, h_pts=h,
                             w_cm=w_cm, h_cm=h_cm, rotated=False)
                 roll91.append(item)
